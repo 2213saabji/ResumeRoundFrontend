@@ -1,0 +1,191 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useCurrentUser } from '@/lib/auth/session';
+import { STORAGE_KEYS, readJson, writeJson } from '@/lib/storage';
+import { useEndInterview } from '../hooks/use-end-interview';
+import { useJanusCall } from '../hooks/use-janus-call';
+import { useMicLevel } from '../hooks/use-mic-level';
+import { useMicrophone } from '../hooks/use-microphone';
+import { useRoomShortcuts } from '../hooks/use-room-shortcuts';
+import { isWebRtcSupported } from '../janus/load-janus';
+import { useCallStore } from '../store';
+import { LiveCall } from './live-call';
+import { PreCheck } from './pre-check';
+import { RoomHeader } from './room-header';
+
+const noopSubscribe = () => () => {};
+
+/**
+ * Voice interview: pre-check, then the live call. Owns the microphone (so the stream tested in
+ * pre-check is the one sent to Janus) and the Janus connection.
+ * @param {{ interview: any, onUseText: () => void }} props
+ */
+export function VoiceRoom({ interview, onUseText }) {
+  const { data: user } = useCurrentUser();
+  const mic = useMicrophone();
+  const supported = useSyncExternalStore(noopSubscribe, isWebRtcSupported, () => true);
+  const [phase, setPhase] = useState(/** @type {'precheck' | 'live'} */ ('precheck'));
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const remoteAudio = useRef(/** @type {HTMLAudioElement | null} */ (null));
+
+  const muted = useCallStore((s) => s.muted);
+  const inputMode = useCallStore((s) => s.inputMode);
+  const pttPressed = useCallStore((s) => s.pttPressed);
+  const { setMuted, setInputMode, setPttPressed, reset } = useCallStore.getState();
+
+  const micTrack = mic.stream?.getAudioTracks()[0] ?? null;
+
+  // Fresh call state per room visit; restore the preferred turn mode.
+  useEffect(() => {
+    reset();
+    const prefs = readJson(STORAGE_KEYS.roomPrefs, {});
+    if (prefs?.inputMode === 'ptt' || prefs?.inputMode === 'vad') setInputMode(prefs.inputMode);
+    return reset;
+  }, [reset, setInputMode]);
+
+  const playRemoteTrack = useCallback((/** @type {MediaStreamTrack | null} */ track) => {
+    const el = remoteAudio.current;
+    if (!el) return;
+    el.srcObject = track ? new MediaStream([track]) : null;
+    if (track) el.play().catch(() => {});
+  }, []);
+
+  const endedRef = useRef(() => {});
+  const call = useJanusCall({
+    interviewId: interview.id,
+    micTrack,
+    displayName: user?.name || 'Candidate',
+    onRemoteTrack: playRemoteTrack,
+    onEnded: () => endedRef.current(),
+  });
+
+  const end = useEndInterview(interview.id, {
+    beforeNavigate: async () => {
+      await call.leave();
+      mic.stop();
+    },
+  });
+
+  useEffect(() => {
+    // The bot ended the interview (time or plan exhausted).
+    endedRef.current = () => {
+      if (!end.isPending) end.mutate();
+    };
+  });
+
+  // Mic on only when not muted and, in push-to-talk, only while the key is held.
+  // (Always on during pre-check so the level meter works.)
+  const { setEnabled } = mic;
+  useEffect(() => {
+    setEnabled(phase === 'precheck' || (!muted && (inputMode === 'vad' || pttPressed)));
+  }, [setEnabled, micTrack, phase, muted, inputMode, pttPressed]);
+
+  useEffect(() => {
+    if (phase === 'live') call.setRemoteMuted(muted);
+  }, [phase, muted, call]);
+
+  // Local VAD: speaking over the interviewer interrupts it (barge-in).
+  const level = useMicLevel(mic.stream, {
+    onSpeechStart: () => {
+      const s = useCallStore.getState();
+      if (phase === 'live' && s.turnState === 'ai_speaking' && s.inputMode === 'vad' && !s.muted) {
+        call.send({ type: 'barge_in' });
+      }
+    },
+  });
+
+  const pttDown = useCallback(() => {
+    const s = useCallStore.getState();
+    if (s.inputMode !== 'ptt' || s.muted || s.pttPressed) return;
+    setPttPressed(true);
+    if (s.turnState === 'ai_speaking') call.send({ type: 'barge_in' });
+    call.send({ type: 'ptt', pressed: true });
+  }, [call, setPttPressed]);
+
+  const pttUp = useCallback(() => {
+    if (!useCallStore.getState().pttPressed) return;
+    setPttPressed(false);
+    call.send({ type: 'ptt', pressed: false });
+  }, [call, setPttPressed]);
+
+  const toggleMute = useCallback(() => {
+    const next = !useCallStore.getState().muted;
+    if (next) pttUp();
+    setMuted(next);
+  }, [pttUp, setMuted]);
+
+  useRoomShortcuts({
+    enabled: phase === 'live',
+    onPttDown: pttDown,
+    onPttUp: pttUp,
+    onToggleMute: toggleMute,
+    onRequestEnd: () => setConfirmEnd(true),
+  });
+
+  function changeInputMode(mode) {
+    setInputMode(mode);
+    writeJson(STORAGE_KEYS.roomPrefs, { inputMode: mode });
+  }
+
+  function join() {
+    setPhase('live');
+    call.join().catch(() => {
+      // describeJoinError already put the message in the store for LiveCall to show
+    });
+  }
+
+  async function switchToText() {
+    await call.leave();
+    mic.stop();
+    onUseText();
+  }
+
+  return (
+    <>
+      {/* The interviewer's voice. Not shown; captions carry the content. */}
+      <audio ref={remoteAudio} autoPlay playsInline className="hidden" />
+
+      {phase === 'precheck' ? (
+        <div className="flex min-h-dvh flex-col">
+          <RoomHeader interview={interview} />
+          <main id="main" className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
+            <PreCheck
+              interview={interview}
+              mic={mic}
+              level={level}
+              supported={supported}
+              inputMode={inputMode}
+              onInputModeChange={changeInputMode}
+              onJoin={join}
+              onUseText={switchToText}
+            />
+          </main>
+        </div>
+      ) : (
+        <LiveCall
+          interview={interview}
+          level={level}
+          onToggleMute={toggleMute}
+          onPttDown={pttDown}
+          onPttUp={pttUp}
+          onRequestEnd={() => setConfirmEnd(true)}
+          onRetry={join}
+          onUseText={switchToText}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirmEnd}
+        onCancel={() => setConfirmEnd(false)}
+        onConfirm={() => end.mutate()}
+        loading={end.isPending}
+        title="End the interview now?"
+        description="You will get a report based on the answers so far. You cannot resume this interview after ending it."
+        confirmLabel="End interview"
+        destructive
+      />
+    </>
+  );
+}

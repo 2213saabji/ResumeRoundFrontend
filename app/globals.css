@@ -1,0 +1,158 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Components use the semantic names (bg-surface, text-fg-muted, bg-accent, ...)
+ * so light and dark themes only swap CSS variables. Theme choice: data-theme on <html>
+ * ("light" | "dark"), or the OS preference when absent.
+ */
+
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f0f0ed;
+  --border: #e2e2dc;
+  --border-strong: #c9c9c1;
+  --fg: #1b1d21;
+  --fg-muted: #5d6068;
+  --fg-subtle: #80838b;
+  --accent: #2f5bd3;
+  --accent-hover: #2549b0;
+  --accent-fg: #ffffff;
+  --accent-soft: #e8eefc;
+  --success: #1d7a4a;
+  --success-soft: #e3f4ea;
+  --warning: #8a5a00;
+  --warning-soft: #fdf2d9;
+  --danger: #c0352b;
+  --danger-hover: #a12a21;
+  --danger-soft: #fbe7e5;
+  --danger-fg: #ffffff;
+  --ring: #2f5bd3;
+  --chart-1: #2f5bd3;
+  --chart-grid: #e6e6e1;
+  --overlay: rgb(15 17 21 / 0.45);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #111317;
+    --surface: #181b20;
+    --surface-2: #20242a;
+    --border: #2c3138;
+    --border-strong: #3d434c;
+    --fg: #e9eaec;
+    --fg-muted: #a3a8b1;
+    --fg-subtle: #7d838d;
+    --accent: #7b9cf5;
+    --accent-hover: #9bb4f8;
+    --accent-fg: #0f1320;
+    --accent-soft: #1d2640;
+    --success: #5fc98d;
+    --success-soft: #16291f;
+    --warning: #e6b450;
+    --warning-soft: #2e2512;
+    --danger: #f07a70;
+    --danger-hover: #f49a92;
+    --danger-soft: #331a18;
+    --danger-fg: #1a0d0c;
+    --ring: #7b9cf5;
+    --chart-1: #6a8bef;
+    --chart-grid: #262a31;
+    --overlay: rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #111317;
+  --surface: #181b20;
+  --surface-2: #20242a;
+  --border: #2c3138;
+  --border-strong: #3d434c;
+  --fg: #e9eaec;
+  --fg-muted: #a3a8b1;
+  --fg-subtle: #7d838d;
+  --accent: #7b9cf5;
+  --accent-hover: #9bb4f8;
+  --accent-fg: #0f1320;
+  --accent-soft: #1d2640;
+  --success: #5fc98d;
+  --success-soft: #16291f;
+  --warning: #e6b450;
+  --warning-soft: #2e2512;
+  --danger: #f07a70;
+  --danger-hover: #f49a92;
+  --danger-soft: #331a18;
+  --danger-fg: #1a0d0c;
+  --ring: #7b9cf5;
+  --chart-1: #6a8bef;
+  --chart-grid: #262a31;
+  --overlay: rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-fg: var(--danger-fg);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-grid: var(--chart-grid);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  dialog::backdrop {
+    background: var(--overlay);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
