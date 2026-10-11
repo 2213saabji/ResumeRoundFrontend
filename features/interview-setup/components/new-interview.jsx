@@ -23,13 +23,18 @@ import { rememberInterview } from '@/lib/storage';
 import { ProfileSummary } from './profile-summary';
 import { RecentInterviews } from './recent-interviews';
 
+// Text first: the live voice call is a later milestone (until then voice interviews fall back to typing).
 const MODE_OPTIONS = [
+  {
+    value: 'text',
+    label: 'Text',
+    description: 'Type your answers; the interviewer adapts to each one',
+  },
   {
     value: 'voice',
     label: 'Voice call',
-    description: 'Talk with the interviewer, like a real call',
+    description: 'Talk with the interviewer (coming soon; you can type meanwhile)',
   },
-  { value: 'text', label: 'Text only', description: 'Type your answers; good for noisy places' },
 ];
 
 const DURATION_OPTIONS = INTERVIEW_DURATIONS.map((d) => ({
@@ -105,7 +110,7 @@ function SetupForm({ profile }) {
       level: user?.level ?? undefined,
       companyType: user?.companyType ?? undefined,
       durationMin: '30', // radio values are strings; the schema coerces
-      mode: 'voice',
+      mode: 'text',
     },
   });
 
@@ -170,7 +175,9 @@ function SetupForm({ profile }) {
             />
             <div className="flex flex-col-reverse gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-fg-subtle">
-                You will check your microphone before the interview starts.
+                {mode === 'voice'
+                  ? 'You will check your microphone before the interview starts.'
+                  : 'You will see the agenda before the first question.'}
               </p>
               <Button type="submit" size="lg" loading={isSubmitting}>
                 Create interview

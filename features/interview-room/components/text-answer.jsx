@@ -1,12 +1,12 @@
 'use client';
 
+import { useMutation } from '@tanstack/react-query';
 import { useId, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ANSWER_MAX_CHARS } from '@/contracts/limits';
-import { newIdempotencyKey } from '@/lib/api/endpoints';
-import { canReuseIdempotencyKey } from '@/lib/api/errors';
-import { answerErrorMessage, useSubmitAnswer } from '../hooks/use-submit-answer';
+import { interviewsApi } from '@/lib/api/endpoints';
+import { ApiError, errorMessage } from '@/lib/api/errors';
 import { useCallStore } from '../store';
 
 /** Collapsible "type instead" box for the voice call (mic trouble, noisy room). */
@@ -15,8 +15,28 @@ export function TextAnswer({ interviewId }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState(/** @type {string | null} */ (null));
-  const key = useRef(newIdempotencyKey());
-  const submit = useSubmitAnswer(interviewId);
+  // seq of the open question, kept from the last answers response. Never looked up with start:
+  // on a created interview that starts the clock and generates a question.
+  const seq = useRef(/** @type {number | null} */ (null));
+  const submit = useMutation({
+    mutationFn: async (answerText) => {
+      if (seq.current == null) {
+        // GET /interviews/:id has no side effects.
+        const { currentTurn } = await interviewsApi.getSession(interviewId);
+        if (!currentTurn) throw new Error('There is no open question to answer right now.');
+        seq.current = currentTurn.seq;
+      }
+      try {
+        const res = await interviewsApi.answer(interviewId, { seq: seq.current, answerText });
+        seq.current = res.currentTurn?.seq ?? null;
+        return res;
+      } catch (err) {
+        // The question moved on (e.g. answered by voice): look it up again on the next send.
+        if (err instanceof ApiError && err.code === 'CONFLICT') seq.current = null;
+        throw err;
+      }
+    },
+  });
   const addTypedAnswer = useCallStore((s) => s.addTypedAnswer);
 
   async function send() {
@@ -24,13 +44,17 @@ export function TextAnswer({ interviewId }) {
     if (!answer) return;
     setError(null);
     try {
-      await submit.mutateAsync({ answerText: answer, idempotencyKey: key.current });
+      await submit.mutateAsync(answer);
       addTypedAnswer(answer);
       setText('');
-      key.current = newIdempotencyKey();
     } catch (err) {
-      if (!canReuseIdempotencyKey(err)) key.current = newIdempotencyKey();
-      setError(answerErrorMessage(err));
+      setError(
+        err instanceof ApiError && (err.code === 'NOT_IMPLEMENTED' || err.code === 'NOT_FOUND')
+          ? 'Typed answers are not available on this server yet.'
+          : err instanceof ApiError && err.code === 'CONFLICT'
+            ? 'The interviewer has moved on to another question. Check the captions, then send again.'
+            : errorMessage(err, 'Your answer was not sent. Please try again.'),
+      );
     }
   }
 

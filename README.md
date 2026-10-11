@@ -16,7 +16,7 @@ cp .env.example .env.local   # then edit if your API is not on localhost:4000
 npm run dev                  # http://localhost:3000
 ```
 
-The backend must be running (`npm run dev:api` and `npm run dev:worker` in the backend repo) and
+The backend must be running (`npm run dev` in the backend repo: API plus the job worker) and
 must allow `http://localhost:3000` in `CORS_ORIGINS`.
 
 | Variable                       | Purpose                                                                |
@@ -76,7 +76,8 @@ Rules: routes import from `features/`; a feature imports only from `lib/`, `cont
   the session (the httpOnly cookie is sent automatically). A 401 triggers one refresh and a retry;
   concurrent 401s share a single refresh call because the refresh token rotates on every use.
 - **Data.** Every request goes through `lib/api/endpoints.js` and TanStack Query. Resume status
-  polls every 2 s (gives up after 90 s with a retry), reports poll every 3 s. Uploads use XHR for
+  polls every 2 s (gives up after 90 s with a retry), reports poll every 5 s (stops after 3 min
+  with a "Check again" button). Uploads use XHR for
   a progress bar. Writes that create things send an `Idempotency-Key`; it is reused on network
   retries and replaced after a 4xx.
 - **Contracts.** Responses are checked against zod schemas in development and tests only; the
@@ -86,13 +87,38 @@ Rules: routes import from `features/`; a feature imports only from `lib/`, `cont
   AudioBridge room with the pre-checked mic track (Opus capped at 24 kbps, FEC on) and a TextRoom
   data channel for captions and turn state. Barge-in comes from a local VAD on the mic. Drops
   rejoin with backoff for 60 s. Shortcuts: Space (hold to talk), M (mute), Esc (end, with confirm).
-  Text mode, or "Type instead", uses `POST /interviews/:id/answers`.
+  The voice call's "Type instead" box answers through the text loop below: it keeps `seq` from the
+  last `answers` response (or reads it from `GET /interviews/:id`) and never calls `start`.
+- **Text interview** (backend guide section 7.4). Agenda + Start → `POST /interviews/:id/start`
+  returns the first question → each `POST /interviews/:id/answers` (`{ seq, answerText }`)
+  returns the next one, until `currentTurn` is `null` and the `closingMessage` is shown before the
+  report. Questions only arrive in those responses; `/turns` is read once, for history after a
+  reload. On reload the room branches on `GET /interviews/:id`: `in_progress` restores from that
+  response's sibling `progress`/`currentTurn` (or `start`, if a server does not send them),
+  `created` shows the agenda and Start button (never auto-starts: `start` starts the clock),
+  `ended` goes to the report. 503 and network errors are retried with the same `seq` (the server
+  dedupes), then a Retry button. A 409 re-reads `GET /interviews/:id` and branches on its status,
+  keeping the typed text. A 429 waits out Retry-After once (up to 60 s); 400 hands the text back.
+  After a natural end the room goes straight to the report (`POST /end` is only for ending early).
+  Topic progress and the countdown come from
+  `progress` and re-sync on every response. Logic: `features/interview-room/text-interview-machine.js`
+  (pure reducer) and `hooks/use-text-interview.js`.
 
-## Backend contract: assumptions to confirm
+## Backend contract status
 
-These endpoints exist but return `501` today, so the frontend is built against the documented
-shape plus the assumptions below. Today the room shows a friendly "not available yet" message
-and offers text mode.
+**Text interview loop (`start` / `answers`, MVP-2):** live; section 7.4 of the backend's
+`docs/FRONTEND_INTEGRATION.md`. New interviews default to `mode: "text"`; voice interviews fall
+back to the same loop while the live call is unavailable.
+
+**Reports and progress (MVP-3):** live; sections 7.5 and 8 of the guide. The report page branches
+on `body.status`: `generating` (202) polls, `ready` renders, `insufficient_answers` and `failed`
+are final and show the backend's message, and a 409 sends the user back to the room. Only the
+dimensions present in `dimensionScores` are shown (a missing one is not a 0), and resource titles
+are plain text (`url` is always null). The "Question by question" tab reads each turn's
+`evaluation`. The progress page charts `overall`, `dimensions` and `skills` (points oldest first).
+Locally, reports need the backend's job worker (`npm run dev` there, not `dev:api`).
+
+**Live voice call (MVP-4): assumptions to confirm** when the join contract is published:
 
 1. **`POST /interviews/:id/join`** returns `{ janusUrl, roomId, token?, pin?, textRoomId?, iceServers }`.
    `pin` is used because the backend's Janus client creates AudioBridge rooms with a PIN.
@@ -103,11 +129,7 @@ and offers text mode.
    `{type:'turn_state', state:'ai_speaking'|'listening'|'thinking'}`,
    `{type:'interview_event', event:'ended'}`. The browser sends `{type:'barge_in'}` and
    `{type:'ptt', pressed}`.
-3. **`POST /interviews/:id/answers`** body is `{ "answerText": "..." }`.
-4. **Text mode first question:** the room polls `GET /interviews/:id/turns` until a turn without
-   an answer appears. If the backend needs an explicit "start" call for text mode, it has to be
-   added on one side or the other.
-5. **Turn evidence:** the report transcript shows `turn.evaluation.evidence[]` (strings or
+3. **Turn evidence:** the report transcript shows `turn.evaluation.evidence[]` (strings or
    `{ quote }`) and `turn.evaluation.missedConcepts[]` when present.
 
 ## Performance budgets

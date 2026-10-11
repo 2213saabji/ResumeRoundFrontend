@@ -2,7 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
 import { Alert } from '@/components/ui/alert';
 import { Button, buttonClasses } from '@/components/ui/button';
@@ -28,7 +29,13 @@ export function ReportPage() {
   const ended = interview.data?.status === 'ended' || interview.data?.status === 'abandoned';
   const report = useReport(id, { enabled: ended });
 
-  if (interview.isPending) return <FullPageSpinner label="Loading report" />;
+  // 409: the server says the interview is still running, so the cached status was stale.
+  const router = useRouter();
+  useEffect(() => {
+    if (report.notEnded) router.replace(`/interviews/${id}/room`);
+  }, [report.notEnded, id, router]);
+
+  if (interview.isPending || report.notEnded) return <FullPageSpinner label="Loading report" />;
 
   if (interview.error) {
     const notFound =
@@ -83,6 +90,22 @@ export function ReportPage() {
         >
           The report is generated after the interview ends.
         </Alert>
+      ) : report.gaveUp ? (
+        <Alert
+          tone="info"
+          title="Your report is taking longer than usual"
+          action={
+            <Button
+              variant="secondary"
+              loading={report.isFetching}
+              onClick={() => report.refetch()}
+            >
+              Check again
+            </Button>
+          }
+        >
+          Your answers are saved. Check back in a few minutes.
+        </Alert>
       ) : report.isPending || report.generating ? (
         <Card className="flex flex-col gap-4" aria-live="polite">
           <div>
@@ -95,6 +118,34 @@ export function ReportPage() {
           </div>
           <Progress label="Report generation" />
         </Card>
+      ) : report.final ? (
+        <Alert
+          tone={report.final.status === 'failed' ? 'danger' : 'info'}
+          title={
+            report.final.status === 'failed'
+              ? 'We could not generate this report'
+              : 'Not enough answers to score'
+          }
+          action={
+            <Link href="/interviews/new" className={buttonClasses()}>
+              Start a new interview
+            </Link>
+          }
+        >
+          {report.final.message}
+        </Alert>
+      ) : report.unavailable ? (
+        <Alert
+          tone="info"
+          title="Reports are not available yet"
+          action={
+            <Link href="/interviews/new" className={buttonClasses({ variant: 'secondary' })}>
+              Practise again
+            </Link>
+          }
+        >
+          Scoring is not switched on for this server yet. Your answers are saved.
+        </Alert>
       ) : report.error ? (
         <Alert
           tone="danger"

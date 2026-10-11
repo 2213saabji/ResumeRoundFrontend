@@ -1,9 +1,12 @@
 import { authResponseSchema, meResponseSchema } from './auth';
 import {
+  answerResponseSchema,
   interviewResponseSchema,
+  interviewSessionResponseSchema,
   joinResponseSchema,
   progressResponseSchema,
   reportResponseSchema,
+  startResponseSchema,
   turnsPageSchema,
 } from './interview';
 import { profileResponseSchema } from './profile';
@@ -19,8 +22,11 @@ export const responseSchemas = {
   resume: resumeResponseSchema,
   profile: profileResponseSchema,
   interview: interviewResponseSchema,
+  interviewSession: interviewSessionResponseSchema,
   turnsPage: turnsPageSchema,
   join: joinResponseSchema,
+  start: startResponseSchema,
+  answer: answerResponseSchema,
   report: reportResponseSchema,
   progress: progressResponseSchema,
 };

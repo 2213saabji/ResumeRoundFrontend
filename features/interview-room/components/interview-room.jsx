@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -19,24 +19,35 @@ export function InterviewRoom() {
   const router = useRouter();
   const [forceText, setForceText] = useState(false);
 
-  const {
-    data: interview,
-    error,
-    isPending,
-    refetch,
-  } = useQuery({
-    queryKey: interviewKeys.detail(id),
-    queryFn: () => interviewsApi.get(id),
+  const queryClient = useQueryClient();
+  const { data, dataUpdatedAt, error, isPending, refetch } = useQuery({
+    queryKey: interviewKeys.session(id),
+    queryFn: async () => {
+      const session = await interviewsApi.getSession(id);
+      // Other pages (report, setup) read the plain interview from the detail key.
+      queryClient.setQueryData(interviewKeys.detail(id), session.interview);
+      return session;
+    },
     staleTime: 0,
+    // Read once per visit; afterwards the room's own start/answers responses are the truth.
+    refetchOnMount: 'always',
+    refetchOnReconnect: false,
   });
+  const interview = data?.interview;
 
   const finished = interview?.status === 'ended' || interview?.status === 'abandoned';
 
-  useEffect(() => {
-    if (finished) router.replace(`/interviews/${id}/report`);
-  }, [finished, id, router]);
+  // Redirect only if the interview was already over when the room opened. An interview that
+  // ends while the candidate is here shows its closing message first.
+  const [entered, setEntered] = useState(false);
+  if (interview && !finished && !entered) setEntered(true);
+  const redirect = finished && !entered;
 
-  if (isPending || finished) return <FullPageSpinner label="Loading interview" />;
+  useEffect(() => {
+    if (redirect) router.replace(`/interviews/${id}/report`);
+  }, [redirect, id, router]);
+
+  if (isPending || redirect) return <FullPageSpinner label="Loading interview" />;
 
   if (error) {
     const notFound =
@@ -67,6 +78,15 @@ export function InterviewRoom() {
     );
   }
 
-  if (interview.mode === 'text' || forceText) return <TextInterview interview={interview} />;
+  // Snapshot of the open question and progress, for restoring a reloaded interview.
+  const session = {
+    progress: data.progress,
+    currentTurn: data.currentTurn,
+    fetchedAt: dataUpdatedAt,
+  };
+
+  if (interview.mode === 'text' || forceText) {
+    return <TextInterview interview={interview} session={session} />;
+  }
   return <VoiceRoom interview={interview} onUseText={() => setForceText(true)} />;
 }

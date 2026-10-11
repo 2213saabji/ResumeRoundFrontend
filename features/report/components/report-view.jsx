@@ -30,10 +30,22 @@ export function ReportView({ report, interviewId }) {
             {report.overall.toFixed(1)}
             <span className="text-xl font-normal text-fg-subtle"> / 10</span>
           </p>
+          {report.questionsAnswered != null ? (
+            <p className="text-sm text-fg-subtle">
+              Based on {report.questionsAnswered}{' '}
+              {report.questionsAnswered === 1 ? 'answer' : 'answers'}
+            </p>
+          ) : null}
         </Card>
         <Card>
           <h2 className="mb-4 font-semibold">Scores by dimension</h2>
-          <ScoreBars scores={report.dimensionScores} />
+          {Object.keys(report.dimensionScores ?? {}).length ? (
+            <ScoreBars scores={report.dimensionScores} />
+          ) : (
+            <p className="text-sm text-fg-muted">
+              This interview did not cover enough to score individual dimensions.
+            </p>
+          )}
         </Card>
       </div>
 
@@ -65,20 +77,11 @@ export function ReportView({ report, interviewId }) {
                   {i + 1}. {r.topic}
                 </p>
                 <p className="text-sm text-fg-muted">{r.reason}</p>
+                {/* Titles only: url is always null (model-generated links are often invented). */}
                 {r.resources?.length ? (
-                  <ul className="flex flex-col gap-1 text-sm">
-                    {r.resources.map((res) => (
-                      <li key={res.url}>
-                        <a
-                          href={res.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium text-accent hover:underline"
-                        >
-                          {res.title}
-                          <span className="sr-only"> (opens in a new tab)</span>
-                        </a>
-                      </li>
+                  <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+                    {r.resources.map((res, j) => (
+                      <li key={`${res.title}-${j}`}>{res.title}</li>
                     ))}
                   </ul>
                 ) : null}
@@ -101,7 +104,7 @@ export function ReportView({ report, interviewId }) {
         { value: 'overview', label: 'Overview', content: overview },
         {
           value: 'transcript',
-          label: 'Transcript',
+          label: 'Question by question',
           content: <ReportTranscript interviewId={interviewId} />,
         },
       ]}

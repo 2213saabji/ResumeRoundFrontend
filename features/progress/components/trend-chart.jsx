@@ -28,11 +28,11 @@ function TrendTooltip({ active, payload }) {
 }
 
 /**
- * One skill's score over time: a single series on a fixed 0-10 axis, so trends are comparable
- * between skills. The skill name is the chart title; no legend is needed for one series.
- * @param {{ points: Array<{ score: number, at: string }>, skill: string }} props
+ * One score over time (overall, a dimension or a skill): a single series on a fixed 0-10 axis,
+ * so trends are comparable. The label is the chart title; no legend is needed for one series.
+ * @param {{ points: Array<{ score: number, at: string }>, label: string }} props
  */
-export default function SkillTrendChart({ points, skill }) {
+export default function TrendChart({ points, label }) {
   const c = useCssVars([
     '--chart-1',
     '--chart-grid',
@@ -46,7 +46,7 @@ export default function SkillTrendChart({ points, skill }) {
     <div
       className="h-64 w-full"
       role="img"
-      aria-label={`${skill} score over ${points.length} interviews`}
+      aria-label={`${label} score over ${points.length} interviews`}
     >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: -16 }}>

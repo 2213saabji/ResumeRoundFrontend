@@ -65,6 +65,8 @@ export const turnSchema = z
   .object({
     seq: z.number(),
     objectiveIdx: z.number().optional(),
+    objectiveKind: z.string().optional(),
+    isFollowUp: z.boolean().optional(),
     questionText: z.string(),
     answerText: z.string().nullable().optional(),
     evaluation: z.unknown().nullable().optional(),
@@ -79,7 +81,53 @@ export const turnsPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+/** Progress object returned by start, answers and GET /interviews/:id (section 7.4). */
+export const interviewProgressSchema = z.object({
+  objectiveIdx: z.number(),
+  objectiveCount: z.number(),
+  objectiveKind: z.string(),
+  questionsAsked: z.number(),
+  elapsedSec: z.number(),
+  remainingSec: z.number(),
+});
+
+/** The open question. */
+export const currentTurnSchema = z.object({
+  seq: z.number(),
+  objectiveIdx: z.number(),
+  objectiveKind: z.string(),
+  questionText: z.string(),
+  isFollowUp: z.boolean(),
+  askedAt: z.string(),
+});
+
+/** POST /interviews/:id/start */
+export const startResponseSchema = z.object({
+  interview: interviewSchema,
+  progress: interviewProgressSchema,
+  currentTurn: currentTurnSchema.nullable(),
+});
+
+/**
+ * GET /interviews/:id. progress and currentTurn sit next to interview (same shape as start);
+ * they are null before start / after the end, and absent on servers without the text loop.
+ */
+export const interviewSessionResponseSchema = z.object({
+  interview: interviewSchema,
+  progress: interviewProgressSchema.nullable().optional(),
+  currentTurn: currentTurnSchema.nullable().optional(),
+});
+
+/** POST /interviews/:id/answers; currentTurn null + closingMessage when the interview ended. */
+export const answerResponseSchema = z.object({
+  interview: interviewSchema.partial().extend({ status: z.enum(INTERVIEW_STATUSES) }),
+  progress: interviewProgressSchema,
+  currentTurn: currentTurnSchema.nullable(),
+  closingMessage: z.string().nullable(),
+});
+
 export const textAnswerInputSchema = z.object({
+  seq: z.number().int().positive(),
   answerText: z
     .string()
     .trim()
@@ -110,11 +158,13 @@ export const joinResponseSchema = z
   })
   .loose();
 
+/** Only dimensions the interview gave evidence for are present; a missing one is not a 0. */
 export const reportSchema = z.object({
   id: z.string(),
   interviewId: z.string(),
   dimensionScores: z.record(z.string(), z.number()),
   overall: z.number(),
+  questionsAnswered: z.number().optional(),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
   feedback: z.string(),
@@ -122,24 +172,37 @@ export const reportSchema = z.object({
     z.object({
       topic: z.string(),
       reason: z.string(),
-      resources: z.array(z.object({ title: z.string(), url: z.string() })).default([]),
+      // url is always null for now (model-generated links are often invented).
+      resources: z.array(z.object({ title: z.string(), url: z.string().nullable() })).default([]),
     }),
   ),
   createdAt: z.string(),
 });
 
+/**
+ * GET /interviews/:id/report. Branch on status, not the HTTP code: ready, insufficient_answers
+ * and failed are all 200 and final; generating is 202.
+ */
 export const reportResponseSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('generating') }),
   z.object({ status: z.literal('ready'), report: reportSchema }),
+  z.object({ status: z.literal('insufficient_answers'), message: z.string() }),
+  z.object({ status: z.literal('failed'), message: z.string() }),
 ]);
 
+/** Oldest first, ready for charts. */
+const trendPointSchema = z.object({ score: z.number(), at: z.string(), interviewId: z.string() });
+
 export const progressResponseSchema = z.object({
+  /** One point per interview that has a report. */
+  overall: z.array(trendPointSchema).default([]),
+  dimensions: z
+    .array(
+      z.object({ dimension: z.string(), latest: z.number(), points: z.array(trendPointSchema) }),
+    )
+    .default([]),
   skills: z.array(
-    z.object({
-      skill: z.string(),
-      latest: z.number(),
-      points: z.array(z.object({ score: z.number(), at: z.string(), interviewId: z.string() })),
-    }),
+    z.object({ skill: z.string(), latest: z.number(), points: z.array(trendPointSchema) }),
   ),
 });
 
