@@ -10,7 +10,7 @@ export const COMPANY_TYPES = /** @type {const} */ ([
   'faang_style',
   'service',
 ]);
-export const INTERVIEW_DURATIONS = /** @type {const} */ ([15, 30, 45]);
+export const INTERVIEW_DURATIONS = /** @type {const} */ ([5, 15, 30, 45]);
 export const INTERVIEW_MODES = /** @type {const} */ (['voice', 'text']);
 
 export const SCORE_DIMENSIONS = /** @type {const} */ ([
