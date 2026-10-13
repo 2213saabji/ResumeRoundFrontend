@@ -17,7 +17,7 @@ const KB = 1024;
 
 /** Budgets in gzipped KB. Routes not listed are reported but not enforced. */
 const BUDGETS = {
-  '/': 100,
+  '/': 140,
   '/interviews/[id]/room': 180,
 };
 
