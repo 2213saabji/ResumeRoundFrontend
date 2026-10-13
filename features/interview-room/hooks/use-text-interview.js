@@ -94,7 +94,18 @@ export function useTextInterview(interview, session = null) {
   const recover = useCallback(
     async (conflict) => {
       try {
-        const res = await interviewsApi.getSession(id);
+        let res = await interviewsApi.getSession(id);
+        // Running but no open question in the GET response: start is safe on an interview in
+        // progress and returns the current question.
+        if (res.interview.status === 'in_progress' && !res.currentTurn) {
+          const session = res;
+          res = await callStart().catch((err) => {
+            // Ended in the meantime.
+            if (err instanceof ApiError && err.code === 'CONFLICT')
+              return { ...session, interview: { ...session.interview, status: 'ended' } };
+            throw err;
+          });
+        }
         cacheInterview(res.interview);
         const { status } = res.interview;
         if (status === 'created') {
@@ -116,7 +127,7 @@ export function useTextInterview(interview, session = null) {
         safeDispatch({ type: 'answerRejected', message: errorMessage(err) });
       }
     },
-    [cacheInterview, id, safeDispatch],
+    [callStart, cacheInterview, id, safeDispatch],
   );
 
   /**

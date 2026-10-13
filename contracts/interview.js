@@ -136,16 +136,16 @@ export const textAnswerInputSchema = z.object({
 });
 
 /**
- * POST /interviews/:id/join (MVP-4). The exact contract is still to be shared by the backend;
- * this accepts the documented fields and tolerates extras.
+ * POST /interviews/:id/join (MVP-4, guide section 7.6). captionRoom is still marked "proposed"
+ * by the backend; extras are tolerated. Every field is a per-session secret: never log it.
  */
 export const joinResponseSchema = z
   .object({
-    janusUrl: z.union([z.string(), z.array(z.string())]),
-    roomId: z.union([z.number(), z.string()]),
-    token: z.string().optional(),
+    wsUrl: z.string(),
+    token: z.string(),
+    room: z.union([z.number(), z.string()]),
     pin: z.string().optional(),
-    textRoomId: z.union([z.number(), z.string()]).optional(),
+    captionRoom: z.union([z.number(), z.string()]).optional(),
     iceServers: z
       .array(
         z.object({

@@ -129,9 +129,8 @@ function SetupForm({ profile }) {
       if (!canReuseIdempotencyKey(err)) setIdempotencyKey(newIdempotencyKey());
       if (applyFieldErrors(err, setError)) return;
       if (err instanceof ApiError && err.code === 'CONFLICT') {
-        setError('root', {
-          message: 'Your resume has not been processed yet. Upload it again from the Resume page.',
-        });
+        // No parsed profile yet: the guide says to send the user to resume upload.
+        router.push('/resume');
       } else if (err instanceof ApiError && err.code === 'QUOTA_EXCEEDED') {
         setError('root', {
           message: err.message || 'You have used all free interviews for this month.',

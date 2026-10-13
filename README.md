@@ -82,13 +82,21 @@ Rules: routes import from `features/`; a feature imports only from `lib/`, `cont
   retries and replaced after a 4xx.
 - **Contracts.** Responses are checked against zod schemas in development and tests only; the
   schemas are dynamically imported so production bundles of non-form pages carry no zod.
-- **Interview room.** Pre-check (WebRTC support, mic permission, device picker, level meter,
-  automatic vs push-to-talk) → `POST /interviews/:id/join` → janus.js (lazy-loaded) joins the
-  AudioBridge room with the pre-checked mic track (Opus capped at 24 kbps, FEC on) and a TextRoom
-  data channel for captions and turn state. Barge-in comes from a local VAD on the mic. Drops
-  rejoin with backoff for 60 s. Shortcuts: Space (hold to talk), M (mute), Esc (end, with confirm).
-  The voice call's "Type instead" box answers through the text loop below: it keeps `seq` from the
-  last `answers` response (or reads it from `GET /interviews/:id`) and never calls `start`.
+- **Interview room** (backend guide section 7.6). Pre-check (WebRTC support, mic permission,
+  device picker, level meter, turn-taking tip) → the Join / Rejoin click calls
+  `POST /interviews/:id/start` (safe on a running interview; syncs the timer) then
+  `POST /interviews/:id/join` → janus.js (lazy-loaded, `token` on every request) joins the
+  AudioBridge room (display `candidate`) with the pre-checked mic track (Opus capped at 24 kbps,
+  FEC on) and the TextRoom caption channel under a fresh random `candidate-xxxxxxxx` name. The
+  transcript is rebuilt from `GET /turns` on every (re)join, since caption announcements are not
+  stored. A 409 from start/join hangs up and goes to the report (no `POST /end`); so does the bot's
+  `ended` event. A 503 offers text mode. ICE `disconnected` counts as a drop after 5 s; drops
+  rejoin (fresh `join`) up to 3 times, then
+  offer text mode. Push-to-talk and barge-in are built but off in `voice-features.js` until the bot
+  supports them. Shortcuts: M (mute), Esc (end, with confirm); Space (hold to talk) once enabled.
+  The voice call's "Type instead" box answers through the text loop below: it takes `seq` from the
+  interviewer's captions (or the last `answers` response, or `GET /interviews/:id`) and never
+  calls `start`.
 - **Text interview** (backend guide section 7.4). Agenda + Start → `POST /interviews/:id/start`
   returns the first question → each `POST /interviews/:id/answers` (`{ seq, answerText }`)
   returns the next one, until `currentTurn` is `null` and the `closingMessage` is shown before the
@@ -118,17 +126,18 @@ are plain text (`url` is always null). The "Question by question" tab reads each
 `evaluation`. The progress page charts `overall`, `dimensions` and `skills` (points oldest first).
 Locally, reports need the backend's job worker (`npm run dev` there, not `dev:api`).
 
-**Live voice call (MVP-4): assumptions to confirm** when the join contract is published:
+**Live voice call (MVP-4):** live; section 7.6 of the guide. In dev the backend needs
+`npm run dev` and `npm run dev:bot`, and the AWS media server must be on (its firewall only
+allows the team's IPs).
 
-1. **`POST /interviews/:id/join`** returns `{ janusUrl, roomId, token?, pin?, textRoomId?, iceServers }`.
-   `pin` is used because the backend's Janus client creates AudioBridge rooms with a PIN.
-   `textRoomId` defaults to `roomId`.
-2. **Captions and turn state** travel over a **Janus TextRoom** (AudioBridge has no data
-   channels). The bot sends JSON as the message text:
-   `{type:'caption', speaker:'ai'|'candidate', text, isFinal, id?}`,
-   `{type:'turn_state', state:'ai_speaking'|'listening'|'thinking'}`,
-   `{type:'interview_event', event:'ended'}`. The browser sends `{type:'barge_in'}` and
-   `{type:'ptt', pressed}`.
+1. **`POST /interviews/:id/join`** returns `{ wsUrl, token, room, pin, captionRoom, iceServers }`.
+   Errors: 409 (text-mode, not started, or ended: go to the report), 404, 503 (offer text mode).
+2. **Caption channel:** every event is a TextRoom announcement,
+   `{ textroom: 'announcement', text: '<JSON>' }`; user messages are ignored. Events:
+   `{type:'state', state:'speaking'|'listening'|'thinking'}` ("Connecting..." until the first),
+   `{type:'interviewer', seq, text}` (one sentence; joined into one bubble per `seq`),
+   `{type:'candidate', seq, text, final}`, `{type:'ended', reason}`. Parsed in
+   `features/interview-room/janus/messages.js`.
 3. **Turn evidence:** the report transcript shows `turn.evaluation.evidence[]` (strings or
    `{ quote }`) and `turn.evaluation.missedConcepts[]` when present.
 

@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 
-/** The server keeps the interview resumable for 60 s after a drop. */
-export const RECONNECT_WINDOW_MS = 60_000;
-const BACKOFF_MS = [1000, 2000, 4000, 8000];
+/** After this many failed rejoins the room offers text mode (guide section 7.6). */
+export const MAX_RECONNECT_ATTEMPTS = 3;
+const BACKOFF_MS = [1000, 2000, 4000];
 
 /** @param {number} attempt zero-based */
 export function backoffDelay(attempt) {
@@ -12,13 +12,11 @@ export function backoffDelay(attempt) {
 }
 
 /**
- * Retries `reconnect` with backoff until it succeeds or the 60 s window closes.
+ * Retries `reconnect` with backoff until it succeeds or MAX_RECONNECT_ATTEMPTS have failed.
  * Framework-free so it can be unit tested with fake timers.
  * @param {{ current: { reconnect: () => Promise<void>, onGiveUp: () => void } }} opts read at call time, so callers can swap handlers
- * @param {() => number} [now]
  */
-export function createReconnector(opts, now = () => Date.now()) {
-  let windowStart = 0;
+export function createReconnector(opts) {
   let attempt = 0;
   let timer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
   let active = false;
@@ -34,15 +32,14 @@ export function createReconnector(opts, now = () => Date.now()) {
     if (timer) return; // an attempt is already queued
     if (!active) {
       active = true;
-      windowStart = now();
       attempt = 0;
     }
-    const delay = backoffDelay(attempt);
-    if (now() - windowStart + delay > RECONNECT_WINDOW_MS) {
+    if (attempt >= MAX_RECONNECT_ATTEMPTS) {
       cancel();
       opts.current.onGiveUp();
       return;
     }
+    const delay = backoffDelay(attempt);
     timer = setTimeout(async () => {
       timer = null;
       attempt += 1;

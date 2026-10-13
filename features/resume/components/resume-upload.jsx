@@ -62,7 +62,8 @@ export function ResumeUpload() {
 
   function requestUpload() {
     if (!file) return;
-    if (profile) setConfirmOpen(true);
+    // null = confirmed no profile (404). Still loading or failed: warn to be safe.
+    if (profile !== null) setConfirmOpen(true);
     else startUpload();
   }
 

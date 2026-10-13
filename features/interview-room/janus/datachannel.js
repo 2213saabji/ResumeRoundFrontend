@@ -3,7 +3,7 @@ import { parseBotMessage } from './messages';
 
 /**
  * Joins the Janus TextRoom paired with the interview (AudioBridge has no data channels).
- * Captions, turn state and interview events arrive here; barge-in and push-to-talk go out.
+ * Captions, the interviewer's state and the end event arrive here as announcements.
  *
  * @param {any} janus Janus session
  * @param {{
@@ -20,7 +20,23 @@ export function joinTextRoom(janus, { roomId, pin, token, display, onMessage, on
   return new Promise((resolve, reject) => {
     let handle = null;
     let settled = false;
-    const joinTx = randomId('join-');
+    let joinTx = '';
+
+    const sendJoin = (username) => {
+      joinTx = randomId('join-');
+      handle.data({
+        text: JSON.stringify({
+          textroom: 'join',
+          transaction: joinTx,
+          room: roomId,
+          username,
+          display,
+          ...(pin ? { pin } : {}),
+          ...(token ? { token } : {}),
+        }),
+        error: fail,
+      });
+    };
 
     const fail = (err) => {
       if (!settled) {
@@ -80,20 +96,8 @@ export function joinTextRoom(janus, { roomId, pin, token, display, onMessage, on
           });
         }
       },
-      ondataopen: () => {
-        handle.data({
-          text: JSON.stringify({
-            textroom: 'join',
-            transaction: joinTx,
-            room: roomId,
-            username: randomId('candidate-'),
-            display,
-            ...(pin ? { pin } : {}),
-            ...(token ? { token } : {}),
-          }),
-          error: fail,
-        });
-      },
+      // A new name each time: after a drop the old session may still hold the previous one.
+      ondataopen: () => sendJoin(randomId('candidate-').slice(0, 'candidate-'.length + 8)),
       ondata: (data) => {
         let raw;
         try {
@@ -102,9 +106,9 @@ export function joinTextRoom(janus, { roomId, pin, token, display, onMessage, on
           return;
         }
         if (raw?.transaction === joinTx) {
-          if (raw.textroom === 'error')
+          if (raw.textroom === 'error') {
             fail(new Error(raw.error || 'Could not join captions room'));
-          else if (!settled) {
+          } else if (!settled) {
             settled = true;
             resolve(api);
           }

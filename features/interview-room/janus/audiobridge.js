@@ -1,6 +1,9 @@
 import { randomId } from './load-janus';
 import { tuneOpus } from './sdp';
 
+/** How long a 'disconnected' ICE state may last before the call counts as dropped. */
+export const DISCONNECT_GRACE_MS = 5000;
+
 /**
  * Joins a Janus AudioBridge room and publishes the candidate's microphone. The AI bot is the
  * other participant; its audio arrives mixed on the remote track.
@@ -24,6 +27,12 @@ export function joinAudioBridge(
   return new Promise((resolve, reject) => {
     let handle = null;
     let settled = false;
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    let disconnectTimer = null;
+    const clearDisconnectTimer = () => {
+      if (disconnectTimer) clearTimeout(disconnectTimer);
+      disconnectTimer = null;
+    };
 
     const fail = (err) => {
       if (!settled) {
@@ -39,7 +48,9 @@ export function joinAudioBridge(
         handle?.send({ message: { request: 'configure', muted } });
       },
       detach() {
+        clearDisconnectTimer();
         try {
+          handle?.send({ message: { request: 'leave' } });
           handle?.hangup();
           handle?.detach();
         } catch {
@@ -67,7 +78,20 @@ export function joinAudioBridge(
       },
       error: fail,
       iceState: (state) => {
-        if (state === 'failed') fail(new Error('ICE connection failed'));
+        if (state === 'failed') {
+          clearDisconnectTimer();
+          fail(new Error('ICE connection failed'));
+        } else if (state === 'disconnected') {
+          // 'disconnected' often recovers by itself; treat it as lost only after 5 s.
+          if (!disconnectTimer) {
+            disconnectTimer = setTimeout(() => {
+              disconnectTimer = null;
+              fail(new Error('ICE disconnected'));
+            }, DISCONNECT_GRACE_MS);
+          }
+        } else if (state === 'connected' || state === 'completed') {
+          clearDisconnectTimer();
+        }
       },
       webrtcState: (on) => {
         if (on && !settled) {

@@ -3,40 +3,53 @@ import { parseBotMessage } from './messages';
 import { OPUS_MAX_AVERAGE_BITRATE, tuneOpus } from './sdp';
 
 describe('parseBotMessage', () => {
-  it('reads bare and TextRoom-wrapped captions', () => {
-    const caption = { type: 'caption', speaker: 'ai', text: 'Hello', isFinal: false, id: 7 };
-    expect(parseBotMessage(JSON.stringify(caption))).toEqual({
-      type: 'caption',
-      speaker: 'ai',
-      text: 'Hello',
-      isFinal: false,
-      id: '7',
-    });
-    const wrapped = { textroom: 'message', from: 'bot', text: JSON.stringify(caption) };
-    expect(parseBotMessage(wrapped)).toMatchObject({ type: 'caption', text: 'Hello' });
-  });
+  const wrap = (event) => ({ textroom: 'announcement', text: JSON.stringify(event) });
 
-  it('accepts known turn states only', () => {
-    expect(parseBotMessage({ type: 'turn_state', state: 'listening' })).toEqual({
-      type: 'turn_state',
+  it('maps the interviewer state, storing speaking as ai_speaking', () => {
+    expect(parseBotMessage(wrap({ type: 'state', state: 'speaking' }))).toEqual({
+      type: 'state',
+      state: 'ai_speaking',
+    });
+    expect(parseBotMessage({ type: 'state', state: 'listening' })).toEqual({
+      type: 'state',
       state: 'listening',
     });
-    expect(parseBotMessage({ type: 'turn_state', state: 'dancing' })).toBeNull();
+    expect(parseBotMessage({ type: 'state', state: 'dancing' })).toBeNull();
   });
 
-  it('passes interview events through', () => {
-    expect(parseBotMessage({ type: 'interview_event', event: 'ended', reason: 'time' })).toEqual({
-      type: 'interview_event',
-      event: 'ended',
-      reason: 'time',
+  it('reads interviewer sentences and candidate transcripts', () => {
+    expect(parseBotMessage(wrap({ type: 'interviewer', seq: 3, text: 'Why Kafka?' }))).toEqual({
+      type: 'interviewer',
+      seq: 3,
+      text: 'Why Kafka?',
     });
+    expect(
+      parseBotMessage(JSON.stringify({ type: 'candidate', seq: 3, text: 'we needed replay' })),
+    ).toEqual({ type: 'candidate', seq: 3, text: 'we needed replay', final: false });
+    expect(
+      parseBotMessage(wrap({ type: 'candidate', seq: 3, text: 'Replay.', final: true })),
+    ).toMatchObject({ final: true });
+  });
+
+  it('reads the ended event', () => {
+    expect(parseBotMessage(wrap({ type: 'ended', reason: 'time_up' }))).toEqual({
+      type: 'ended',
+      reason: 'time_up',
+    });
+  });
+
+  it('handles announcements only, not messages from room users', () => {
+    const event = JSON.stringify({ type: 'ended', reason: 'completed' });
+    expect(parseBotMessage({ textroom: 'message', from: 'interviewer', text: event })).toBeNull();
+    expect(parseBotMessage({ textroom: 'join', username: 'x' })).toBeNull();
   });
 
   it('ignores junk', () => {
     expect(parseBotMessage('not json')).toBeNull();
     expect(parseBotMessage({ type: 'unknown' })).toBeNull();
-    expect(parseBotMessage({ textroom: 'message', text: '{bad' })).toBeNull();
-    expect(parseBotMessage({ type: 'caption' })).toBeNull();
+    expect(parseBotMessage({ textroom: 'announcement', text: '{bad' })).toBeNull();
+    expect(parseBotMessage({ type: 'interviewer', text: 'no seq' })).toBeNull();
+    expect(parseBotMessage({ type: 'candidate', seq: 1 })).toBeNull();
   });
 });
 

@@ -6,7 +6,7 @@ import { useCallStore } from '../store';
 export const TURN_STATE_UI = {
   connecting: { label: 'Connecting to interviewer', tone: 'neutral' },
   ai_speaking: { label: 'Interviewer is speaking', tone: 'accent' },
-  listening: { label: 'Your turn', tone: 'success' },
+  listening: { label: 'Your turn: listening...', tone: 'success' },
   thinking: { label: 'Interviewer is thinking', tone: 'neutral' },
   reconnecting: { label: 'Reconnecting', tone: 'warning' },
   ended: { label: 'Interview ended', tone: 'neutral' },

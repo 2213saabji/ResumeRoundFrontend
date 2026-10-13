@@ -14,6 +14,7 @@ function isTypingTarget(target) {
  * Room keyboard controls: Space = push-to-talk (hold), M = mute, Esc = end (with confirm).
  * @param {{
  *   enabled: boolean,
+ *   pushToTalk?: boolean,
  *   onPttDown: () => void,
  *   onPttUp: () => void,
  *   onToggleMute: () => void,
@@ -34,7 +35,7 @@ export function useRoomShortcuts(handlers) {
 
     const onKeyDown = (e) => {
       if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.code === 'Space') {
+      if (e.code === 'Space' && ref.current.pushToTalk) {
         e.preventDefault(); // no page scroll, no button "click" on focused buttons
         if (!spaceDown && !e.repeat) {
           spaceDown = true;

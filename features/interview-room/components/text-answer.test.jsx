@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { interviewsApi } from '@/lib/api/endpoints';
 import { ApiError } from '@/lib/api/errors';
+import { useCallStore } from '../store';
 import { TextAnswer } from './text-answer';
 
 const turn = (seq) => ({
@@ -34,7 +35,26 @@ function setup() {
 }
 
 describe('TextAnswer (voice call)', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useCallStore.getState().reset();
+  });
+
+  it('uses the seq from the interviewer captions without a GET', async () => {
+    const getSession = vi.spyOn(interviewsApi, 'getSession');
+    const answer = vi
+      .spyOn(interviewsApi, 'answer')
+      .mockResolvedValueOnce({ interview: {}, progress: {}, currentTurn: turn(8) });
+    useCallStore.getState().appendInterviewerLine({ seq: 7, text: 'Why Kafka?' });
+
+    const { user, send } = setup();
+    await user.click(screen.getByRole('button', { name: /type your answer instead/i }));
+    await send('Replay');
+    await waitFor(() => expect(answer).toHaveBeenCalledTimes(1));
+
+    expect(answer.mock.calls[0][1].seq).toBe(7);
+    expect(getSession).not.toHaveBeenCalled();
+  });
 
   it('looks the seq up with GET once, then keeps it from answers; never calls start', async () => {
     const start = vi.spyOn(interviewsApi, 'start');

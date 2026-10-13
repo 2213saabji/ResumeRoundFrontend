@@ -15,11 +15,13 @@ export function TextAnswer({ interviewId }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState(/** @type {string | null} */ (null));
-  // seq of the open question, kept from the last answers response. Never looked up with start:
-  // on a created interview that starts the clock and generates a question.
+  // seq of the open question: from the interviewer's captions when known, else kept from the
+  // last answers response. Never looked up with start: on a created interview that starts the
+  // clock and generates a question.
   const seq = useRef(/** @type {number | null} */ (null));
   const submit = useMutation({
     mutationFn: async (answerText) => {
+      seq.current = useCallStore.getState().currentSeq ?? seq.current;
       if (seq.current == null) {
         // GET /interviews/:id has no side effects.
         const { currentTurn } = await interviewsApi.getSession(interviewId);
@@ -29,10 +31,14 @@ export function TextAnswer({ interviewId }) {
       try {
         const res = await interviewsApi.answer(interviewId, { seq: seq.current, answerText });
         seq.current = res.currentTurn?.seq ?? null;
+        useCallStore.setState({ currentSeq: seq.current });
         return res;
       } catch (err) {
         // The question moved on (e.g. answered by voice): look it up again on the next send.
-        if (err instanceof ApiError && err.code === 'CONFLICT') seq.current = null;
+        if (err instanceof ApiError && err.code === 'CONFLICT') {
+          seq.current = null;
+          useCallStore.setState({ currentSeq: null });
+        }
         throw err;
       }
     },

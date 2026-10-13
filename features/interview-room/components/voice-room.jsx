@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { useCurrentUser } from '@/lib/auth/session';
+import { interviewKeys } from '@/lib/api/query-keys';
 import { STORAGE_KEYS, readJson, writeJson } from '@/lib/storage';
 import { useEndInterview } from '../hooks/use-end-interview';
 import { useJanusCall } from '../hooks/use-janus-call';
@@ -11,6 +13,7 @@ import { useMicrophone } from '../hooks/use-microphone';
 import { useRoomShortcuts } from '../hooks/use-room-shortcuts';
 import { isWebRtcSupported } from '../janus/load-janus';
 import { useCallStore } from '../store';
+import { VOICE_FEATURES } from '../voice-features';
 import { LiveCall } from './live-call';
 import { PreCheck } from './pre-check';
 import { RoomHeader } from './room-header';
@@ -23,7 +26,8 @@ const noopSubscribe = () => () => {};
  * @param {{ interview: any, onUseText: () => void }} props
  */
 export function VoiceRoom({ interview, onUseText }) {
-  const { data: user } = useCurrentUser();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const mic = useMicrophone();
   const supported = useSyncExternalStore(noopSubscribe, isWebRtcSupported, () => true);
   const [phase, setPhase] = useState(/** @type {'precheck' | 'live'} */ ('precheck'));
@@ -41,7 +45,8 @@ export function VoiceRoom({ interview, onUseText }) {
   useEffect(() => {
     reset();
     const prefs = readJson(STORAGE_KEYS.roomPrefs, {});
-    if (prefs?.inputMode === 'ptt' || prefs?.inputMode === 'vad') setInputMode(prefs.inputMode);
+    if (VOICE_FEATURES.pushToTalk && (prefs?.inputMode === 'ptt' || prefs?.inputMode === 'vad'))
+      setInputMode(prefs.inputMode);
     return reset;
   }, [reset, setInputMode]);
 
@@ -53,10 +58,10 @@ export function VoiceRoom({ interview, onUseText }) {
   }, []);
 
   const endedRef = useRef(() => {});
+  const leftForReport = useRef(false);
   const call = useJanusCall({
     interviewId: interview.id,
     micTrack,
-    displayName: user?.name || 'Candidate',
     onRemoteTrack: playRemoteTrack,
     onEnded: () => endedRef.current(),
   });
@@ -69,9 +74,16 @@ export function VoiceRoom({ interview, onUseText }) {
   });
 
   useEffect(() => {
-    // The bot ended the interview (time or plan exhausted).
-    endedRef.current = () => {
-      if (!end.isPending) end.mutate();
+    // The interview is over (the bot's ended event, or start/join answered 409): hang up and go
+    // to the report. No POST /end: the server has already ended it.
+    endedRef.current = async () => {
+      if (end.isPending || leftForReport.current) return;
+      leftForReport.current = true;
+      await call.leave();
+      mic.stop();
+      // The cached interview still says in_progress; let the report page read the server's.
+      queryClient.removeQueries({ queryKey: interviewKeys.detail(interview.id), exact: true });
+      router.replace(`/interviews/${interview.id}/report`);
     };
   });
 
@@ -86,9 +98,10 @@ export function VoiceRoom({ interview, onUseText }) {
     if (phase === 'live') call.setRemoteMuted(muted);
   }, [phase, muted, call]);
 
-  // Local VAD: speaking over the interviewer interrupts it (barge-in).
+  // Local VAD: speaking over the interviewer interrupts it (barge-in, once the bot supports it).
   const level = useMicLevel(mic.stream, {
     onSpeechStart: () => {
+      if (!VOICE_FEATURES.bargeIn) return;
       const s = useCallStore.getState();
       if (phase === 'live' && s.turnState === 'ai_speaking' && s.inputMode === 'vad' && !s.muted) {
         call.send({ type: 'barge_in' });
@@ -100,7 +113,7 @@ export function VoiceRoom({ interview, onUseText }) {
     const s = useCallStore.getState();
     if (s.inputMode !== 'ptt' || s.muted || s.pttPressed) return;
     setPttPressed(true);
-    if (s.turnState === 'ai_speaking') call.send({ type: 'barge_in' });
+    if (VOICE_FEATURES.bargeIn && s.turnState === 'ai_speaking') call.send({ type: 'barge_in' });
     call.send({ type: 'ptt', pressed: true });
   }, [call, setPttPressed]);
 
@@ -116,8 +129,22 @@ export function VoiceRoom({ interview, onUseText }) {
     setMuted(next);
   }, [pttUp, setMuted]);
 
+  // Warn before closing the tab or reloading while the call is up.
+  const turnState = useCallStore((s) => s.turnState);
+  const inCall = phase === 'live' && turnState !== 'ended';
+  useEffect(() => {
+    if (!inCall) return;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [inCall]);
+
   useRoomShortcuts({
     enabled: phase === 'live',
+    pushToTalk: VOICE_FEATURES.pushToTalk,
     onPttDown: pttDown,
     onPttUp: pttUp,
     onToggleMute: toggleMute,
@@ -129,7 +156,9 @@ export function VoiceRoom({ interview, onUseText }) {
     writeJson(STORAGE_KEYS.roomPrefs, { inputMode: mode });
   }
 
+  // Called from the Join / Rejoin click: the browser only plays audio after a user gesture.
   function join() {
+    remoteAudio.current?.play().catch(() => {});
     setPhase('live');
     call.join().catch(() => {
       // describeJoinError already put the message in the store for LiveCall to show
@@ -157,7 +186,7 @@ export function VoiceRoom({ interview, onUseText }) {
               level={level}
               supported={supported}
               inputMode={inputMode}
-              onInputModeChange={changeInputMode}
+              onInputModeChange={VOICE_FEATURES.pushToTalk ? changeInputMode : null}
               onJoin={join}
               onUseText={switchToText}
             />

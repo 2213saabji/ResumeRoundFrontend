@@ -22,8 +22,10 @@ const initialState = {
   /** 'vad' = automatic end-of-turn detection, 'ptt' = hold Space to talk */
   inputMode: /** @type {'vad' | 'ptt'} */ ('vad'),
   pttPressed: false,
-  /** epoch ms of the first ai_speaking state; the timer starts here */
+  /** epoch ms the interview clock started (server's startedAt, else the first ai_speaking) */
   startedAt: /** @type {number | null} */ (null),
+  /** seq of the question the interviewer is on (from captions), for typed answers */
+  currentSeq: /** @type {number | null} */ (null),
   /** epoch ms when the current reconnect window opened */
   reconnectingSince: /** @type {number | null} */ (null),
   /** @type {null | { title: string, message: string, canRetry: boolean }} */
@@ -42,6 +44,67 @@ export const useCallStore = create((set) => ({
       startedAt: s.startedAt ?? (turnState === 'ai_speaking' ? Date.now() : null),
       reconnectingSince: turnState === 'reconnecting' ? (s.reconnectingSince ?? Date.now()) : null,
     })),
+
+  /**
+   * Re-syncs the call timer to the server clock (progress.elapsedSec from start/answers).
+   * @param {number} elapsedSec
+   */
+  syncClock: (elapsedSec) => set({ startedAt: Date.now() - elapsedSec * 1000 }),
+
+  /**
+   * Replaces the captions with the stored transcript (GET /turns). Caption announcements are not
+   * stored, so this rebuilds the history after a reconnect or a rejoin.
+   * @param {Array<{ seq: number, questionText: string, answerText?: string | null }>} turns
+   */
+  loadHistory: (turns) =>
+    set((s) => ({
+      captions: turns
+        .flatMap((t) => [
+          {
+            id: `ai-${t.seq}`,
+            speaker: /** @type {const} */ ('ai'),
+            text: t.questionText,
+            isFinal: true,
+            history: true,
+          },
+          ...(t.answerText
+            ? [
+                {
+                  id: `h-cand-${t.seq}`,
+                  speaker: /** @type {const} */ ('candidate'),
+                  text: t.answerText,
+                  isFinal: true,
+                },
+              ]
+            : []),
+        ])
+        .slice(-MAX_CAPTIONS),
+      currentSeq: turns.at(-1)?.seq ?? s.currentSeq,
+    })),
+
+  /**
+   * Appends one interviewer sentence to the bubble for its question (one bubble per seq). A
+   * bubble loaded from history is replaced instead, in case the interviewer repeats the question.
+   * @param {{ seq: number, text: string }} c
+   */
+  appendInterviewerLine: ({ seq, text }) =>
+    set((s) => {
+      const id = `ai-${seq}`;
+      const captions = s.captions.slice();
+      const idx = captions.findIndex((x) => x.id === id);
+      if (idx >= 0) {
+        const prev = captions[idx];
+        captions[idx] = {
+          id,
+          speaker: 'ai',
+          isFinal: true,
+          text: prev.history ? text : `${prev.text} ${text}`.trim(),
+        };
+      } else {
+        captions.push({ id, speaker: /** @type {const} */ ('ai'), text, isFinal: true });
+      }
+      return { captions: captions.slice(-MAX_CAPTIONS), currentSeq: seq };
+    }),
 
   /**
    * Adds or updates a caption. Partial captions (isFinal false) replace the speaker's open

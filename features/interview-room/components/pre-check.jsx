@@ -26,7 +26,7 @@ const INPUT_MODES = [
  *   level: number,
  *   supported: boolean,
  *   inputMode: 'vad' | 'ptt',
- *   onInputModeChange: (m: 'vad' | 'ptt') => void,
+ *   onInputModeChange: ((m: 'vad' | 'ptt') => void) | null,
  *   onJoin: () => void,
  *   onUseText: () => void,
  * }} props
@@ -49,7 +49,8 @@ export function PreCheck({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Before we start</h1>
           <p className="mt-1 text-fg-muted">
-            Use headphones if you can, and find a quiet spot. Captions stay on for the whole call.
+            The interview is in English. Use headphones if you can, so your microphone does not pick
+            up the interviewer, and find a quiet spot. Captions stay on for the whole call.
           </p>
         </div>
 
@@ -103,12 +104,21 @@ export function PreCheck({
               ) : null}
             </section>
 
-            <RadioCardGroup
-              legend="How do you want to end your turn?"
-              options={INPUT_MODES}
-              value={inputMode}
-              onValueChange={(v) => onInputModeChange(/** @type {'vad' | 'ptt'} */ (v))}
-            />
+            {/* null until the bot supports push-to-talk (VOICE_FEATURES) */}
+            {onInputModeChange ? (
+              <RadioCardGroup
+                legend="How do you want to end your turn?"
+                options={INPUT_MODES}
+                value={inputMode}
+                onValueChange={(v) => onInputModeChange(/** @type {'vad' | 'ptt'} */ (v))}
+              />
+            ) : (
+              <Alert tone="info" title="How turns work">
+                A pause of about a second ends your answer, and the interviewer replies a few
+                seconds later. It cannot be interrupted while it speaks. Take your time. If you need
+                to think, say &ldquo;let me think&rdquo; first.
+              </Alert>
+            )}
           </>
         )}
 
@@ -121,7 +131,7 @@ export function PreCheck({
             Type instead of talking
           </button>
           <Button size="lg" onClick={onJoin} disabled={!supported || !hasMic}>
-            Join interview
+            {interview.status === 'in_progress' ? 'Rejoin call' : 'Join interview'}
           </Button>
         </div>
       </Card>

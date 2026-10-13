@@ -14,13 +14,13 @@ export const VOICE_CONSTRAINTS = {
 function describeMicError(err) {
   const name = /** @type {any} */ (err)?.name;
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return "Microphone access is blocked. Allow it in your browser's site settings, then try again.";
+    return 'Allow microphone access in your browser settings to use voice mode.';
   }
   if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-    return 'No microphone was found. Plug one in or pick another device.';
+    return 'No microphone found. Connect one, or continue in text mode.';
   }
   if (name === 'NotReadableError') {
-    return 'Your microphone is being used by another app. Close it and try again.';
+    return 'Your microphone is in use by another app (Zoom, Teams...). Close it and retry.';
   }
   return 'Could not start your microphone.';
 }
