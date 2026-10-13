@@ -40,7 +40,7 @@ const MODE_OPTIONS = [
 const DURATION_OPTIONS = INTERVIEW_DURATIONS.map((d) => ({
   value: d,
   label: `${d} minutes`,
-  description: { 15: 'Quick round', 30: 'Standard round', 45: 'Full loop' }[d],
+  description: { 5: 'Quick test', 15: 'Quick round', 30: 'Standard round', 45: 'Full loop' }[d],
 }));
 
 export function NewInterview() {
@@ -159,7 +159,7 @@ function SetupForm({ profile }) {
             />
             <RadioCardGroup
               legend="Duration"
-              columns={3}
+              columns={4}
               inputProps={register('durationMin')}
               value={durationMin}
               error={errors.durationMin?.message}
